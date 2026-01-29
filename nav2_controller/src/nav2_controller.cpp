@@ -160,6 +160,7 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
     "Controller Server has %s controllers available.", controller_ids_concat_.c_str());
 
   odom_sub_ = std::make_unique<nav_2d_utils::OdomSubscriber>(node);
+  // 速度控制命令发布器
   vel_publisher_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
 
   // Create the action server that we implement with our followPath method
@@ -260,6 +261,7 @@ bool ControllerServer::findControllerId(
   return true;
 }
 
+/* follow_path 话题回调函数 */
 void ControllerServer::computeControl()
 {
   RCLCPP_INFO(get_logger(), "Received a goal, begin computing control effort.");
@@ -273,17 +275,18 @@ void ControllerServer::computeControl()
       action_server_->terminate_current();
       return;
     }
-
+    // 设置全局路径
     setPlannerPath(action_server_->get_current_goal()->path);
     progress_checker_->reset();
 
+    // 控制主循环
     rclcpp::WallRate loop_rate(controller_frequency_);
     while (rclcpp::ok()) {
       if (action_server_ == nullptr || !action_server_->is_server_active()) {
         RCLCPP_DEBUG(get_logger(), "Action server unavailable or inactive. Stopping.");
         return;
       }
-
+      // 检查取消请求
       if (action_server_->is_cancel_requested()) {
         RCLCPP_INFO(get_logger(), "Goal was canceled. Stopping the robot.");
         action_server_->terminate_all();
@@ -291,15 +294,19 @@ void ControllerServer::computeControl()
         return;
       }
 
+      // 检查新的全局路径请求
       updateGlobalPath();
 
+      // 计算并发布速度控制命令
       computeAndPublishVelocity();
 
+      // 判断是否到达目标点，如果到达目标点则跳出循环
       if (isGoalReached()) {
         RCLCPP_INFO(get_logger(), "Reached the goal!");
         break;
       }
 
+      // 控制循环等待
       if (!loop_rate.sleep()) {
         RCLCPP_WARN(
           get_logger(), "Control loop missed its desired rate of %.4fHz",
@@ -349,27 +356,31 @@ void ControllerServer::computeAndPublishVelocity()
 {
   geometry_msgs::msg::PoseStamped pose;
 
+  // 获取机器人当前位姿
   if (!getRobotPose(pose)) {
     throw nav2_core::PlannerException("Failed to obtain robot pose");
   }
-
+  // 检查机器人是否有进展
   if (!progress_checker_->check(pose)) {
     throw nav2_core::PlannerException("Failed to make progress");
   }
-
+  // 通过里程计获取当前速度
   nav_2d_msgs::msg::Twist2D twist = getThresholdedTwist(odom_sub_->getTwist());
 
+  // 调用插件算法
   auto cmd_vel_2d =
     controllers_[current_controller_]->computeVelocityCommands(
     pose,
     nav_2d_utils::twist2Dto3D(twist));
 
+  // Action server 返回 feedback
   std::shared_ptr<Action::Feedback> feedback = std::make_shared<Action::Feedback>();
   feedback->speed = std::hypot(cmd_vel_2d.twist.linear.x, cmd_vel_2d.twist.linear.y);
   feedback->distance_to_goal = nav2_util::geometry_utils::euclidean_distance(end_pose_, pose.pose);
   action_server_->publish_feedback(feedback);
 
   RCLCPP_DEBUG(get_logger(), "Publishing velocity at time %.2f", now().seconds());
+  // 控制器发布速度
   publishVelocity(cmd_vel_2d);
 }
 
@@ -394,11 +405,14 @@ void ControllerServer::updateGlobalPath()
 
 void ControllerServer::publishVelocity(const geometry_msgs::msg::TwistStamped & velocity)
 {
+  // 将 TwistStamped 转换为 Twist (去除时间戳和帧ID，只保留线速度和角速度)
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>(velocity.twist);
+  // 检查发布者是否激活且有订阅者
   if (
     vel_publisher_->is_activated() &&
     this->count_subscribers(vel_publisher_->get_topic_name()) > 0)
   {
+    // 最终发布到 /cmd_vel话题
     vel_publisher_->publish(std::move(cmd_vel));
   }
 }

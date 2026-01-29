@@ -63,6 +63,7 @@ PlannerServer::~PlannerServer()
   costmap_thread_.reset();
 }
 
+/* 声明与加载规划器插件 */
 nav2_util::CallbackReturn
 PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
@@ -77,9 +78,13 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
 
   tf_ = costmap_ros_->getTfBuffer();
 
+  // 1. 读取参数中的插件列表 (例如 ["GridBased"])
   get_parameter("planner_plugins", planner_ids_);
+
+  // 2. 循环加载每个插件
   if (planner_ids_ == default_ids_) {
     for (size_t i = 0; i < default_ids_.size(); ++i) {
+      // 从参数服务器获取具体的插件类名 (例如 "nav2_navfn_planner/NavfnPlanner")
       declare_parameter(default_ids_[i] + ".plugin", default_types_[i]);
     }
   }
@@ -89,14 +94,20 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
 
   for (size_t i = 0; i != planner_ids_.size(); i++) {
     try {
+      // 通过 node 和 planner_ids_[i] 构建 planner_types_[i]字段,
+      // 比如: planner_types_[i] = "nav2_navfn_planner/NavfnPlanner".
       planner_types_[i] = nav2_util::get_plugin_type_param(
         node, planner_ids_[i]);
+      // 3. 使用加载器实例化插件对象
+      // 这个 planner 实例是 nav2_core::GlobalPlanner 的派生类.
       nav2_core::GlobalPlanner::Ptr planner =
         gp_loader_.createUniqueInstance(planner_types_[i]);
       RCLCPP_INFO(
         get_logger(), "Created global planner plugin %s of type %s",
         planner_ids_[i].c_str(), planner_types_[i].c_str());
+      // 4. 初始化插件 (把地图传给它)
       planner->configure(node, planner_ids_[i], tf_, costmap_ros_);
+      // 5. 存入 Map 中备用
       planners_.insert({planner_ids_[i], planner});
     } catch (const pluginlib::PluginlibException & ex) {
       RCLCPP_FATAL(
@@ -230,6 +241,7 @@ PlannerServer::computePlan()
       goal = action_server_->accept_pending_goal();
     }
 
+    // 核心代码：进一步调用getPlan，注意这里的planner_id
     result->path = getPlan(start, goal->pose, goal->planner_id);
 
     if (result->path.poses.size() == 0) {
@@ -284,6 +296,7 @@ PlannerServer::getPlan(
     goal.pose.position.x, goal.pose.position.y);
 
   if (planners_.find(planner_id) != planners_.end()) {
+    // 核心：从planners_调用第planner_id种算法的createPlan()接口计算从start->goal的路线
     return planners_[planner_id]->createPlan(start, goal);
   } else {
     if (planners_.size() == 1 && planner_id.empty()) {

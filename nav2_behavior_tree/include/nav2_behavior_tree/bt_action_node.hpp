@@ -51,6 +51,7 @@ public:
     if (getInput("server_name", remapped_action_name)) {
       action_name_ = remapped_action_name;
     }
+    // BtActionNode（行为树叶子节点）会创建一个ROS2 Action客户端，以便与指定的Action服务器进行通信
     createActionClient(action_name_);
 
     // Give the derive class a chance to do any initialization
@@ -227,7 +228,7 @@ protected:
           result_ = result;
         }
       };
-
+    // 核心：向客户端发送请求，action_client_对应的就是行为树解析xml文件中的一个个action_client实例（比如：ComputePathToPoseAction）
     auto future_goal_handle = action_client_->async_send_goal(goal_, send_goal_options);
 
     if (rclcpp::spin_until_future_complete(node_, future_goal_handle, server_timeout_) !=

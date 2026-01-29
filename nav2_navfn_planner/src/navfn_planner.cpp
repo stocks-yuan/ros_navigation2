@@ -253,11 +253,13 @@ NavfnPlanner::makePlan(
   double potential = getPointPotential(p.position);
   if (potential < POT_HIGH) {
     // Goal is reachable by itself
+    // 目标点可直接到达
     best_pose = p;
     found_legal = true;
   } else {
     // Goal is not reachable. Trying to find nearest to the goal
     // reachable point within its tolerance region
+    // 在容差范围内搜索最近的可达点
     double best_sdist = std::numeric_limits<double>::max();
 
     p.position.y = goal.position.y - tolerance;
@@ -345,7 +347,7 @@ NavfnPlanner::getPlanFromPotential(
 
   const int & max_cycles = (costmap_->getSizeInCellsX() >= costmap_->getSizeInCellsY()) ?
     (costmap_->getSizeInCellsX() * 4) : (costmap_->getSizeInCellsY() * 4);
-
+  // 1. 调用 NavFn 的路径提取
   int path_len = planner_->calcPath(max_cycles);
   if (path_len == 0) {
     return false;
@@ -355,10 +357,12 @@ NavfnPlanner::getPlanFromPotential(
   RCLCPP_DEBUG(node_->get_logger(), "Path found, %d steps, %f cost\n", path_len, cost);
 
   // extract the plan
+  // 2. 获取路径点（栅格坐标）
   float * x = planner_->getPathX();
   float * y = planner_->getPathY();
   int len = planner_->getPathLen();
 
+  // 3. 反向遍历，转为世界坐标
   for (int i = len - 1; i >= 0; --i) {
     // convert the plan to world coordinates
     double world_x, world_y;

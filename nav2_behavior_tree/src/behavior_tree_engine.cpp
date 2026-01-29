@@ -49,7 +49,8 @@ BehaviorTreeEngine::run(
       tree->rootNode()->halt();
       return BtStatus::CANCELED;
     }
-
+    
+    // 核心语句：执行每个节点tickRoot()函数.
     result = tree->tickRoot();
 
     onLoop();

@@ -122,7 +122,8 @@ std::vector<double> StandardTrajectoryGenerator::getTimeSteps(
   std::vector<double> steps;
   if (discretize_by_time_) {
     steps.resize(ceil(sim_time_ / time_granularity_));
-  } else {  // discretize by distance
+  } else {  
+    // discretize by distance
     double vmag = hypot(cmd_vel.x, cmd_vel.y);
 
     // the distance the robot would travel in sim_time if it did not change velocity
@@ -145,6 +146,14 @@ std::vector<double> StandardTrajectoryGenerator::getTimeSteps(
   return steps;
 }
 
+/**
+ * @brief 生成预测轨迹 (Rollout)
+ * 
+ * @param start_pose 机器人起始位姿
+ * @param start_vel 机器人当前速度
+ * @param cmd_vel 目标采样速度 (期望达到的速度)
+ * @return dwb_msgs::msg::Trajectory2D 生成的一系列轨迹点
+ */
 dwb_msgs::msg::Trajectory2D StandardTrajectoryGenerator::generateTrajectory(
   const geometry_msgs::msg::Pose2D & start_pose,
   const nav_2d_msgs::msg::Twist2D & start_vel,
@@ -160,11 +169,14 @@ dwb_msgs::msg::Trajectory2D StandardTrajectoryGenerator::generateTrajectory(
   traj.poses.push_back(start_pose);
   for (double dt : steps) {
     //  calculate velocities
+    //  计算考虑加速度限制后的新速度，多次迭代vel收敛到cmd_vel
     vel = computeNewVelocity(cmd_vel, vel, dt);
 
     //  update the position of the robot using the velocities passed in
+    //  根据新速度更新机器人的位置：s = s0 + v*t
     pose = computeNewPosition(pose, vel, dt);
 
+    //  记录这个点
     traj.poses.push_back(pose);
     traj.time_offsets.push_back(rclcpp::Duration::from_seconds(running_time));
     running_time += dt;
@@ -179,7 +191,13 @@ dwb_msgs::msg::Trajectory2D StandardTrajectoryGenerator::generateTrajectory(
 }
 
 /**
+ * @brief 根据加速度限制计算下一时刻的速度
  * change vel using acceleration limits to converge towards sample_target-vel
+ * 
+ * @param cmd_vel 目标采样速度
+ * @param start_vel 当前速度
+ * @param dt 时间步长
+ * @return nav_2d_msgs::msg::Twist2D 计算出的新速度
  */
 nav_2d_msgs::msg::Twist2D StandardTrajectoryGenerator::computeNewVelocity(
   const nav_2d_msgs::msg::Twist2D & cmd_vel,
@@ -200,6 +218,14 @@ nav_2d_msgs::msg::Twist2D StandardTrajectoryGenerator::computeNewVelocity(
   return new_vel;
 }
 
+/**
+ * @brief 根据速度计算下一时刻的位置 (运动学模型积分)
+ * 
+ * @param start_pose 当前位姿
+ * @param vel 当前速度
+ * @param dt 时间步长
+ * @return geometry_msgs::msg::Pose2D 计算出的新位姿
+ */
 geometry_msgs::msg::Pose2D StandardTrajectoryGenerator::computeNewPosition(
   const geometry_msgs::msg::Pose2D start_pose,
   const nav_2d_msgs::msg::Twist2D & vel, const double dt)

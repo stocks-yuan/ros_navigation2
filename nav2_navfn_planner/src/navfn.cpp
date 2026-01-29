@@ -341,6 +341,7 @@ void
 NavFn::setupNavFn(bool keepit)
 {
   // reset values in propagation arrays
+  // 1. 所有格子势能设为无穷大
   for (int i = 0; i < ns; i++) {
     potarr[i] = POT_HIGH;
     if (!keepit) {
@@ -350,6 +351,7 @@ NavFn::setupNavFn(bool keepit)
   }
 
   // outer bounds of cost array
+  // 2. 地图边界设为障碍物
   COSTTYPE * pc;
   pc = costarr;
   for (int i = 0; i < nx; i++) {
@@ -380,7 +382,7 @@ NavFn::setupNavFn(bool keepit)
 
   // set goal
   int k = goal[0] + goal[1] * nx;
-  initCost(k, 0);
+  initCost(k, 0);// 设置目标点(路径规划起点)势能为0，并把4邻域加入待处理队列
 
   // find # of obstacle cells
   pc = costarr;
@@ -785,6 +787,7 @@ NavFn::calcPath(int n, int * st)
       std::min(
         nx * ny - 1, stc + static_cast<int>(round(dx)) +
         static_cast<int>(nx * round(dy))));
+    // 1. 检查是否到达目标（真实的起点）
     if (potarr[nearest_point] < COST_NEUTRAL) {
       pathx[npath] = static_cast<float>(goal[0]);
       pathy[npath] = static_cast<float>(goal[1]);
@@ -797,6 +800,7 @@ NavFn::calcPath(int n, int * st)
     }
 
     // add to path
+    // 2. 添加当前点到路径
     pathx[npath] = stc % nx + dx;
     pathy[npath] = stc / nx + dy;
     npath++;
@@ -865,6 +869,7 @@ NavFn::calcPath(int n, int * st)
       }
     } else {  // have a good gradient here
       // get grad at four positions near cell
+      // 3. 计算4个邻域的梯度
       gradCell(stc);
       gradCell(stc + 1);
       gradCell(stcnx);
@@ -872,6 +877,7 @@ NavFn::calcPath(int n, int * st)
 
 
       // get interpolated gradient
+      // 4. 双线性插值得到亚像素级梯度
       float x1 = (1.0 - dx) * gradx[stc] + dx * gradx[stc + 1];
       float x2 = (1.0 - dx) * gradx[stcnx] + dx * gradx[stcnx + 1];
       float x = (1.0 - dy) * x1 + dy * x2;  // interpolated x
@@ -896,11 +902,13 @@ NavFn::calcPath(int n, int * st)
       }
 
       // move in the right direction
+      // 5. 沿梯度方向移动 pathStep (默认0.5格)
       float ss = pathStep / hypot(x, y);
       dx += x * ss;
       dy += y * ss;
 
       // check for overflow
+      // 6. 累积到整数格子时更新 stc
       if (dx > 1.0) {stc++; dx -= 1.0;}
       if (dx < -1.0) {stc--; dx += 1.0;}
       if (dy > 1.0) {stc += nx; dy -= 1.0;}

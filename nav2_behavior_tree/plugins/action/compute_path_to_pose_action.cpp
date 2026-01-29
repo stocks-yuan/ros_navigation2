@@ -30,10 +30,11 @@ ComputePathToPoseAction::ComputePathToPoseAction(
 
 void ComputePathToPoseAction::on_tick()
 {
-  getInput("goal", goal_.pose);
-  getInput("planner_id", goal_.planner_id);
+  getInput("goal", goal_.pose);// 从黑板(Blackboard)获取目标点
+  getInput("planner_id", goal_.planner_id);// 获取规划器ID
 }
 
+//当 ROS Action Server 计算完成并返回成功结果后，这个函数被调用
 BT::NodeStatus ComputePathToPoseAction::on_success()
 {
   setOutput("path", result_.result->path);
@@ -57,7 +58,7 @@ BT_REGISTER_NODES(factory)
       return std::make_unique<nav2_behavior_tree::ComputePathToPoseAction>(
         name, "compute_path_to_pose", config);
     };
-
+  // ... 将类名映射到 XML 标签 "ComputePathToPose"
   factory.registerBuilder<nav2_behavior_tree::ComputePathToPoseAction>(
     "ComputePathToPose", builder);
 }

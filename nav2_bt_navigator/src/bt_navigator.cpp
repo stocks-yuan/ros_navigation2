@@ -173,6 +173,7 @@ BtNavigator::loadBehaviorTree(const std::string & bt_xml_filename)
     std::istreambuf_iterator<char>(xml_file),
     std::istreambuf_iterator<char>());
 
+  /* 核心语句：根据行为树文件创建行为树 */
   // Create the Behavior Tree from the XML input
   tree_ = bt_->createTreeFromText(xml_string, blackboard_);
   current_bt_xml_filename_ = bt_xml_filename;
@@ -264,6 +265,7 @@ BtNavigator::navigateToPose()
       return action_server_->is_cancel_requested();
     };
 
+  /* 1. 首先加载行为树*/  
   std::string bt_xml_filename = action_server_->get_current_goal()->behavior_tree;
 
   // Empty id in request is default for backward compatibility
@@ -307,6 +309,7 @@ BtNavigator::navigateToPose()
     };
 
   // Execute the BT that was previously created in the configure step
+  /* 2. 核心语句：按照行为树的规则，逐个执行行为树的节点.*/ 
   nav2_behavior_tree::BtStatus rc = bt_->run(&tree_, on_loop, is_canceling);
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.

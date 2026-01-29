@@ -296,23 +296,49 @@ DWBLocalPlanner::computeVelocityCommands(
   }
 }
 
+/**
+ * @brief 准备局部路径规划所需的全局路径
+ * 
+ * 主要功能：
+ * 1. 将全局路径转换到局部坐标系 (通常是 odom 或 base_link)
+ * 2. 裁剪掉已经走过的路径点
+ * 3. 裁剪掉超出局部代价地图范围的路径点
+ * 4. 计算局部的目标点位姿
+ * 
+ * @param pose 机器人当前的位姿
+ * @param transformed_plan 输出参数，转换和裁剪后的局部路径
+ * @param goal_pose 输出参数，转换后的局部坐标系下的全局路径终点
+ * @param publish_plan 是否发布转换后的路径用于调试/可视化
+ */
 void
 DWBLocalPlanner::prepareGlobalPlan(
   const nav_2d_msgs::msg::Pose2DStamped & pose, nav_2d_msgs::msg::Path2D & transformed_plan,
   nav_2d_msgs::msg::Pose2DStamped & goal_pose, bool publish_plan)
 {
+  // 1. 调用 transformGlobalPlan 进行路径裁剪和坐标转换 (Map frame -> Local frame)
   transformed_plan = transformGlobalPlan(pose);
   if (publish_plan) {
     pub_->publishTransformedPlan(transformed_plan);
   }
 
+  // 2. 获取局部目标点 (全局路径的终点)
   goal_pose.header.frame_id = global_plan_.header.frame_id;
   goal_pose.pose = global_plan_.poses.back();
+  // 将终点从全局地图坐标系 /map 转换到了局部代价地图的固定坐标系 /odom
   nav_2d_utils::transformPose(
     tf_, costmap_ros_->getGlobalFrameID(), goal_pose,
     goal_pose, transform_tolerance_);
 }
 
+
+/**
+ * @brief 计算速度指令的核心入口函数
+ * 
+ * @param pose 机器人当前的位姿
+ * @param velocity 机器人当前的速度
+ * @param results 用于存储评估结果的调试信息指针
+ * @return nav_2d_msgs::msg::Twist2DStamped 最优的速度指令 (vx, vy, omega)
+ */
 nav_2d_msgs::msg::Twist2DStamped
 DWBLocalPlanner::computeVelocityCommands(
   const nav_2d_msgs::msg::Pose2DStamped & pose,
@@ -323,15 +349,17 @@ DWBLocalPlanner::computeVelocityCommands(
     results->header.frame_id = pose.header.frame_id;
     results->header.stamp = node_->now();
   }
-
+  // 1. 准备局部路径
   nav_2d_msgs::msg::Path2D transformed_plan;
   nav_2d_msgs::msg::Pose2DStamped goal_pose;
 
   prepareGlobalPlan(pose, transformed_plan, goal_pose);
 
+  // 2. 锁定代价地图
   nav2_costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();
   std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> lock(*(costmap->getMutex()));
 
+  // 3. 让所有 Critics 做准备工作
   for (TrajectoryCritic::Ptr critic : critics_) {
     if (critic->prepare(pose.pose, velocity, goal_pose.pose, transformed_plan) == false) {
       RCLCPP_WARN(rclcpp::get_logger("DWBLocalPlanner"), "A scoring function failed to prepare");
@@ -339,8 +367,10 @@ DWBLocalPlanner::computeVelocityCommands(
   }
 
   try {
+    // 4. 核心评分算法
     dwb_msgs::msg::TrajectoryScore best = coreScoringAlgorithm(pose.pose, velocity, results);
 
+    // 5. 返回最优速度
     // Return Value
     nav_2d_msgs::msg::Twist2DStamped cmd_vel;
     cmd_vel.header.stamp = node_->now();
@@ -374,6 +404,14 @@ DWBLocalPlanner::computeVelocityCommands(
   }
 }
 
+/**
+ * @brief 核心评分算法：遍历所有候选速度，生成轨迹并评分，选择最优轨迹
+ * 
+ * @param pose 初始位姿
+ * @param velocity 初始速度
+ * @param results 调试结果存储
+ * @return dwb_msgs::msg::TrajectoryScore 得分最高的轨迹及其分数
+ */
 dwb_msgs::msg::TrajectoryScore
 DWBLocalPlanner::coreScoringAlgorithm(
   const geometry_msgs::msg::Pose2D & pose,
@@ -383,21 +421,28 @@ DWBLocalPlanner::coreScoringAlgorithm(
   nav_2d_msgs::msg::Twist2D twist;
   dwb_msgs::msg::Trajectory2D traj;
   dwb_msgs::msg::TrajectoryScore best, worst;
-  best.total = -1;
+  best.total = -1;  // 初始化为"无效"
   worst.total = -1;
   IllegalTrajectoryTracker tracker;
 
+  // 在三个方向（X, Y, Theta）创建速度采样迭代器，用于生成可行的速度空间。
   traj_generator_->startNewIteration(velocity);
+
   while (traj_generator_->hasMoreTwists()) {
+    // 1. 获取下一个候选速度
     twist = traj_generator_->nextTwist();
+
+    // 2. 生成对应的轨迹 (预测未来位置)
     traj = traj_generator_->generateTrajectory(pose, velocity, twist);
 
     try {
+      // 3. 给这条轨迹打分
       dwb_msgs::msg::TrajectoryScore score = scoreTrajectory(traj, best.total);
       tracker.addLegalTrajectory();
       if (results) {
         results->twists.push_back(score);
       }
+      // 4. 更新最优解
       if (best.total < 0 || score.total < best.total) {
         best = score;
         if (results) {
@@ -422,6 +467,7 @@ DWBLocalPlanner::coreScoringAlgorithm(
         failed_score.total = -1.0;
         results->twists.push_back(failed_score);
       }
+      // 非法轨迹（撞墙了），跳过
       tracker.addIllegalTrajectory(e);
     }
   }
@@ -436,12 +482,19 @@ DWBLocalPlanner::coreScoringAlgorithm(
           x.first.first.c_str(), x.first.second.c_str());
       }
     }
-    throw NoLegalTrajectoriesException(tracker);
+    throw NoLegalTrajectoriesException(tracker);// 所有轨迹都非法
   }
 
-  return best;
+  return best;  // 返回最佳
 }
 
+/**
+ * @brief 对单条轨迹进行评分
+ * 
+ * @param traj 待评分的轨迹
+ * @param best_score 当前已知的最佳分数 (用于短路优化)
+ * @return dwb_msgs::msg::TrajectoryScore 包含该轨迹的详细评分结果
+ */
 dwb_msgs::msg::TrajectoryScore
 DWBLocalPlanner::scoreTrajectory(
   const dwb_msgs::msg::Trajectory2D & traj,
@@ -450,6 +503,7 @@ DWBLocalPlanner::scoreTrajectory(
   dwb_msgs::msg::TrajectoryScore score;
   score.traj = traj;
 
+  // 遍历所有 Critic (评论家插件) 进行打分
   for (TrajectoryCritic::Ptr critic : critics_) {
     dwb_msgs::msg::CriticScore cs;
     cs.name = critic->getName();
@@ -484,6 +538,19 @@ getSquareDistance(
   return x_diff * x_diff + y_diff * y_diff;
 }
 
+/**
+ * @brief 将全局路径转换到局部代价地图的坐标系下，并进行裁剪
+ * 
+ * 此函数主要执行三个步骤：
+ * 1. 同步坐标系：计算机器人当前位置在全局路径坐标系中的位置 (robot_pose)
+ * 2. 确定裁剪窗口：
+ *    - transformation_begin: 找到路径上距离机器人最近的点之前的截断点（丢弃已经走过的路）
+ *    - transformation_end: 找到路径上超出局部地图范围或前瞻距离之后的截断点（丢弃太远的未来路径）
+ * 3. 坐标转换：将截取的这一段路径点，从 Global Frame (如 map) 转换到 Local Frame (如 odom)
+ * 
+ * @param pose 机器人当前的位姿 (通常是 global frame)
+ * @return nav_2d_msgs::msg::Path2D 裁剪并转换后的局部路径
+ */
 nav_2d_msgs::msg::Path2D
 DWBLocalPlanner::transformGlobalPlan(
   const nav_2d_msgs::msg::Pose2DStamped & pose)
@@ -493,6 +560,7 @@ DWBLocalPlanner::transformGlobalPlan(
   }
 
   // let's get the pose of the robot in the frame of the plan
+  // 1. 获取机器人在全局规划坐标系下的位姿
   nav_2d_msgs::msg::Pose2DStamped robot_pose;
   if (!nav_2d_utils::transformPose(
       tf_, global_plan_.header.frame_id, pose,
@@ -503,6 +571,7 @@ DWBLocalPlanner::transformGlobalPlan(
   }
 
   // we'll discard points on the plan that are outside the local costmap
+  // 2. 计算裁剪阈值：基于 Costmap 大小
   nav2_costmap_2d::Costmap2D * costmap = costmap_ros_->getCostmap();
   double dist_threshold = std::max(costmap->getSizeInCellsX(), costmap->getSizeInCellsY()) *
     costmap->getResolution() / 2.0;
@@ -510,11 +579,13 @@ DWBLocalPlanner::transformGlobalPlan(
 
   // If prune_plan is enabled (it is by default) then we want to restrict the
   // plan to distances within that range as well.
+  // 3. 计算裁剪阈值：基于 prune_distance 参数
   double sq_prune_dist = prune_distance_ * prune_distance_;
 
   // Set the maximum distance we'll include points before getting to the part
   // of the path where the robot is located (the start of the plan). Basically,
   // these are the points the robot has already passed.
+  // 4. 确定由于"已经走过"而需要丢弃的路径距离阈值
   double sq_transform_start_threshold;
   if (prune_plan_) {
     sq_transform_start_threshold = std::min(sq_dist_threshold, sq_prune_dist);
@@ -534,6 +605,8 @@ DWBLocalPlanner::transformGlobalPlan(
 
   // Find the first pose in the plan that's less than sq_transform_start_threshold
   // from the robot.
+  // 6. 查找起点：在路径列表中，找到第一个距离机器人足够近的点
+  // 这里逻辑是：路径列表是从起点开始存的，如果某些点距离机器人很远且在列表前面，说明已经走过了，跳过这些点
   auto transformation_begin = std::find_if(
     begin(global_plan_.poses), end(global_plan_.poses),
     [&](const auto & global_plan_pose) {
@@ -542,6 +615,7 @@ DWBLocalPlanner::transformGlobalPlan(
 
   // Find the first pose in the end of the plan that's further than sq_transform_end_threshold
   // from the robot
+  // 7. 查找终点：从起点开始往后找，找到第一个距离机器人太远的点，截断
   auto transformation_end = std::find_if(
     transformation_begin, end(global_plan_.poses),
     [&](const auto & global_plan_pose) {
@@ -549,12 +623,14 @@ DWBLocalPlanner::transformGlobalPlan(
     });
 
   // Transform the near part of the global plan into the robot's frame of reference.
+  // 8. 准备转换后的路径对象
   nav_2d_msgs::msg::Path2D transformed_plan;
   transformed_plan.header.frame_id = costmap_ros_->getGlobalFrameID();
   transformed_plan.header.stamp = pose.header.stamp;
 
   // Helper function for the transform below. Converts a pose2D from global
   // frame to local
+  // 9. 定义 Lambda 转换函数：Map Frame -> Odom Frame
   auto transformGlobalPoseToLocal = [&](const auto & global_plan_pose) {
       nav_2d_msgs::msg::Pose2DStamped stamped_pose, transformed_pose;
       stamped_pose.header.frame_id = global_plan_.header.frame_id;
@@ -564,7 +640,9 @@ DWBLocalPlanner::transformGlobalPlan(
         stamped_pose, transformed_pose, transform_tolerance_);
       return transformed_pose.pose;
     };
-
+  
+  // 坐标变换 (map -> base_link/odom)
+  // 10. 批量执行转换并填入结果  
   std::transform(
     transformation_begin, transformation_end,
     std::back_inserter(transformed_plan.poses),
@@ -572,6 +650,7 @@ DWBLocalPlanner::transformGlobalPlan(
 
   // Remove the portion of the global plan that we've already passed so we don't
   // process it on the next iteration.
+  // 11. 如果开启了裁剪，从内存中永久删除已经走过的全局路径点
   if (prune_plan_) {
     global_plan_.poses.erase(begin(global_plan_.poses), transformation_begin);
     pub_->publishGlobalPlan(global_plan_);
