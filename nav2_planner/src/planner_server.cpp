@@ -49,10 +49,12 @@ PlannerServer::PlannerServer()
   declare_parameter("expected_planner_frequency", 1.0);
 
   // Setup the global costmap
+  // 创建全局代价地图节点
   costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "global_costmap", std::string{get_namespace()}, "global_costmap");
 
   // Launch a thread to run the costmap node
+  // 在独立线程中运行代价地图节点
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
 }
 
@@ -63,19 +65,23 @@ PlannerServer::~PlannerServer()
   costmap_thread_.reset();
 }
 
-/* 声明与加载规划器插件 */
+/* 规划器配置阶段 */
 nav2_util::CallbackReturn
 PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Configuring");
 
+  // 配置代价地图
   costmap_ros_->configure();
+
+  // 获取底层 Costmap2D 指针
   costmap_ = costmap_ros_->getCostmap();
 
   RCLCPP_DEBUG(
     get_logger(), "Costmap size: %d,%d",
     costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
-
+  
+  // 获取 TF buffer 用于坐标变换
   tf_ = costmap_ros_->getTfBuffer();
 
   // 1. 读取参数中的插件列表 (例如 ["GridBased"])
@@ -105,7 +111,7 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
       RCLCPP_INFO(
         get_logger(), "Created global planner plugin %s of type %s",
         planner_ids_[i].c_str(), planner_types_[i].c_str());
-      // 4. 初始化插件 (把地图传给它)
+      // 4. 初始化插件 (将代价地图传递给规划器插件)
       planner->configure(node, planner_ids_[i], tf_, costmap_ros_);
       // 5. 存入 Map 中备用
       planners_.insert({planner_ids_[i], planner});

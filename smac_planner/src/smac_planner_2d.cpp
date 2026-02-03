@@ -303,6 +303,7 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   removeHook(path_world);
 
   // populate final path
+  // 填充输出数据
   for (unsigned int i = 0; i != path_world.size(); i++) {
     pose.pose.position.x = path_world[i][0];
     pose.pose.position.y = path_world[i][1];
@@ -312,6 +313,7 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   return plan;
 }
 
+// 移除路径末端的"钩子效应"的优化算法
 void SmacPlanner2D::removeHook(std::vector<Eigen::Vector2d> & path)
 {
   // Removes the end "hooking" since goal is locked in place
