@@ -107,12 +107,12 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      movement_time_allowance: 20.0
     # Goal checker parameters
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.4
       stateful: True
 
     # ===== DWB Controller - 适合差速驱动，支持原地旋转 =====
@@ -265,8 +265,13 @@ planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
     use_sim_time: True
-    planner_plugins: ["GridBased"]
-    GridBased:
+    planner_plugins: ["Smac2D", "Navfn"]
+    Navfn:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.15
+      use_astar: false
+      allow_unknown: true
+    Smac2D:
       plugin: "smac_planner/SmacPlanner2D"
       tolerance: 0.15                      # 目标容差(米)
       downsample_costmap: false            # 是否降采样代价地图

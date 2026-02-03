@@ -6,37 +6,21 @@
   2. 执行 FollowPath，控制器(DWB/RPP)在局部范围内进行实时路径规划和避障。
      - 控制器会自动寻找无障碍物的局部路径来跟踪全局路径。
      - 所谓的"局部路径规划"实际上由控制器的采样和评分机制(Trajectory Rollout)完成。
-  3. 如果控制器因为障碍物无法前进(FollowPath失败)，触发恢复行为(RecoveryFallback)。
-     - 清除代价地图 -> 后退 -> 等待
-     - 恢复后会重新从头执行(由于是Sequence)，这会触发一次新的全局规划以尝试绕过大的障碍物。
+  3. 如果任何步骤失败，直接返回失败，不执行恢复行为。
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
-    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
-      <Sequence name="NavigateSequence">
-        
-        <!-- 阶段1: 全局规划 -->
-        <!-- 只有在Sequence刚开始时执行一次，没有包裹在RateController中，所以不会定期重规划 -->
-        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
-        
-        <!-- 阶段2: 局部规划与控制 -->
-        <!-- FollowPath 调用控制器插件(DWB或RPP) -->
-        <!-- 控制器会在局部代价地图中规划局部轨迹，实现动态避障 -->
-        <FollowPath path="{path}" controller_id="FollowPath"/>
-        
-      </Sequence>
+    <Sequence name="NavigateSequence">
       
-      <!-- 阶段3: 恢复策略 -->
-      <ReactiveFallback name="RecoveryFallback">
-        <GoalUpdated/>
-        <SequenceStar name="RecoveryActions">
-          <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
-          <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
-          <!-- 简单的后退恢复 -->
-          <BackUp backup_dist="0.30" backup_speed="0.05"/>
-          <Wait wait_duration="5"/>
-        </SequenceStar>
-      </ReactiveFallback>
-    </RecoveryNode>
+      <!-- 阶段1: 全局规划 -->
+      <!-- 只有在Sequence刚开始时执行一次，没有包裹在RateController中，所以不会定期重规划 -->
+      <ComputePathToPose goal="{goal}" path="{path}" planner_id="Navfn"/>
+      
+      <!-- 阶段2: 局部规划与控制 -->
+      <!-- FollowPath 调用控制器插件(DWB或RPP) -->
+      <!-- 控制器会在局部代价地图中规划局部轨迹，实现动态避障 -->
+      <FollowPath path="{path}" controller_id="FollowPath"/>
+      
+    </Sequence>
   </BehaviorTree>
 </root>
