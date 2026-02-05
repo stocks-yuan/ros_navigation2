@@ -183,6 +183,7 @@ protected:
   nav_2d_msgs::msg::Twist2D getThresholdedTwist(const nav_2d_msgs::msg::Twist2D & twist)
   {
     nav_2d_msgs::msg::Twist2D twist_thresh;
+    // 分别对三个方向的速度应用阈值过滤
     twist_thresh.x = getThresholdedVelocity(twist.x, min_x_velocity_threshold_);
     twist_thresh.y = getThresholdedVelocity(twist.y, min_y_velocity_threshold_);
     twist_thresh.theta = getThresholdedVelocity(twist.theta, min_theta_velocity_threshold_);

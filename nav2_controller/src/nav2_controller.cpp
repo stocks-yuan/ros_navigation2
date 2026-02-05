@@ -438,7 +438,7 @@ bool ControllerServer::isGoalReached()
   if (!getRobotPose(pose)) {
     return false;
   }
-
+  // 过滤掉小于阈值的小速度值
   nav_2d_msgs::msg::Twist2D twist = getThresholdedTwist(odom_sub_->getTwist());
   geometry_msgs::msg::Twist velocity = nav_2d_utils::twist2Dto3D(twist);
   return goal_checker_->isGoalReached(pose.pose, end_pose_, velocity);

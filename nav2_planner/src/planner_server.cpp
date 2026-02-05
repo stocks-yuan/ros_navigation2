@@ -46,7 +46,7 @@ PlannerServer::PlannerServer()
 
   // Declare this node's parameters
   declare_parameter("planner_plugins", default_ids_);
-  declare_parameter("expected_planner_frequency", 1.0);
+  // declare_parameter("expected_planner_frequency", 1.0);
 
   // Setup the global costmap
   // 创建全局代价地图节点
@@ -131,17 +131,17 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
     get_logger(),
     "Planner Server has %s planners available.", planner_ids_concat_.c_str());
 
-  double expected_planner_frequency;
-  get_parameter("expected_planner_frequency", expected_planner_frequency);
-  if (expected_planner_frequency > 0) {
-    max_planner_duration_ = 1 / expected_planner_frequency;
-  } else {
-    RCLCPP_WARN(
-      get_logger(),
-      "The expected planner frequency parameter is %.4f Hz. The value should to be greater"
-      " than 0.0 to turn on duration overrrun warning messages", expected_planner_frequency);
-    max_planner_duration_ = 0.0;
-  }
+  // double expected_planner_frequency;
+  // get_parameter("expected_planner_frequency", expected_planner_frequency);
+  // if (expected_planner_frequency > 0) {
+  //   max_planner_duration_ = 1 / expected_planner_frequency;
+  // } else {
+  //   RCLCPP_WARN(
+  //     get_logger(),
+  //     "The expected planner frequency parameter is %.4f Hz. The value should to be greater"
+  //     " than 0.0 to turn on duration overrrun warning messages", expected_planner_frequency);
+  //   max_planner_duration_ = 0.0;
+  // }
 
   // Initialize pubs & subs
   plan_publisher_ = create_publisher<nav_msgs::msg::Path>("plan", 1);
@@ -271,12 +271,14 @@ PlannerServer::computePlan()
     auto cycle_duration = steady_clock_.now() - start_time;
     result->planning_time = cycle_duration;
 
-    if (max_planner_duration_ && cycle_duration.seconds() > max_planner_duration_) {
-      RCLCPP_WARN(
-        get_logger(),
-        "Planner loop missed its desired rate of %.4f Hz. Current loop rate is %.4f Hz",
-        1 / max_planner_duration_, 1 / cycle_duration.seconds());
-    }
+    RCLCPP_INFO(this->get_logger(), "Planner takes times : %.2f s", result->planning_time.seconds());
+
+    // if (max_planner_duration_ && cycle_duration.seconds() > max_planner_duration_) {
+    //   RCLCPP_WARN(
+    //     get_logger(),
+    //     "Planner loop missed its desired rate of %.4f Hz. Current loop rate is %.4f Hz",
+    //     1 / max_planner_duration_, 1 / cycle_duration.seconds());
+    // }
 
     action_server_->succeeded_current(result);
   } catch (std::exception & ex) {
